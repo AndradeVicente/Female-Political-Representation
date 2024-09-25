@@ -1,0 +1,559 @@
+---
+title: "close-elections"
+author: "Vandrade"
+date: "2024-06-10"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+# Importing librarys
+
+```{r importing librarys, warning=FALSE, message=FALSE}
+
+library(tidyverse)
+library(electionsBR)
+library(sf)
+library(geobr)
+library(extrafont)
+library(foreign)
+library(rdrobust)
+library(readxl)
+library(microdatasus)
+library(gt)
+
+
+```
+
+# electionsBR
+
+```{r}
+year = c(2000, 2004, 2008, 2012, 2016, 2020)
+
+```
+
+## VOTE_MUN_ZONE
+
+```{r votes per municipality's zones, cache = TRUE}
+
+
+fun_vote_mun_zone <- function(year) {
+  elections_tse(year, type = 'vote_mun_zone', uf = 'all')}
+
+df_vote_mun_zone <- map_df(year, fun_vote_mun_zone)
+
+df_candidates_votes <- df_vote_mun_zone |> 
+  mutate(votos_zona = coalesce(QT_VOTOS_NOMINAIS_VALIDOS, QT_VOTOS_NOMINAIS)) |> 
+  select(ano = ANO_ELEICAO,
+         estado = SG_UF,
+         cd_municipio_tse = CD_MUNICIPIO,
+         nm_municipio = NM_MUNICIPIO,
+         zona = NR_ZONA,
+         cargo = DS_CARGO,
+         nr_candidato = NR_CANDIDATO,
+         nm_candidato = NM_CANDIDATO,
+         votos_zona,
+         partido = SG_PARTIDO) |> 
+  filter(cargo == 'Prefeito') |> 
+  group_by(ano, estado, cd_municipio_tse, nr_candidato) |> 
+  summarize(nm_municipio = first(nm_municipio),
+            nm_candidato = first(nm_candidato),
+            total_votos = sum(votos_zona),
+            partido = first(partido)) |> 
+  group_by(ano, estado, cd_municipio_tse) |> # adding a column "result". 
+  mutate(resultado = ifelse(total_votos == max(total_votos), 'Eleito', 'Não Eleito')) |> 
+  mutate(cd_municipio_tse = as.numeric(cd_municipio_tse))
+
+df_candidates_votes |> head(3)
+
+
+```
+
+## DETAILS_MUN_ZONE
+
+this dataframe is at zone level, not candidate. Its very important to
+have it because it will be used to filter the municipalities with up to
+200000 electoral population (municipalities without 2nd turn)
+
+```{r, cache = TRUE}
+
+fun_details_mun_zone <- function(year) {
+  elections_tse(year, type = 'details_mun_zone', uf = 'all')}
+
+df_details_mun_zone <- map_df(year, fun_details_mun_zone)
+
+df_pop_votante <- df_details_mun_zone |> 
+  select(ano = ANO_ELEICAO,
+         estado = SG_UF,
+         cd_municipio_tse = CD_MUNICIPIO,
+         nm_municipio = NM_MUNICIPIO,
+         zona = NR_ZONA,
+         cargo = DS_CARGO,
+         pop_votante = QT_APTOS,
+         nr_abstencoes = QT_ABSTENCOES) |> 
+  filter(cargo == 'Prefeito') |> 
+  group_by(ano, estado, cd_municipio_tse) |> 
+  summarize(nm_municipio = first(nm_municipio),
+            pop_votante = sum(pop_votante)) |> 
+  mutate(cd_municipio_tse = as.numeric(cd_municipio_tse))
+
+df_pop_votante |> head(3)
+
+
+
+```
+
+
+
+## CANDIDATE_LOCAL
+
+```{r, cache=TRUE}
+
+fun_candidates <- function(year) {
+  candidate_local(year, uf = 'all') |> 
+    mutate(NR_PROTOCOLO_CANDIDATURA = as.character(NR_PROTOCOLO_CANDIDATURA),
+           NR_CPF_CANDIDATO = as.character(NR_CPF_CANDIDATO),
+           CD_COR_RACA = as.character(CD_COR_RACA))}
+
+df_fun_candidates <- map_df(year, fun_candidates)
+
+df_candidates_details <- df_fun_candidates |> 
+  select(ano = ANO_ELEICAO, #selecionando e filtrando as variaveis
+         estado = SG_UF,
+         cargo = DS_CARGO,
+         nr_candidato = NR_CANDIDATO,
+         nm_candidato = NM_CANDIDATO,
+         partido = SG_PARTIDO,
+         idade = NR_IDADE_DATA_POSSE,
+         genero = DS_GENERO,
+         educacao = DS_GRAU_INSTRUCAO,
+         cor_raca = DS_COR_RACA,
+         ocupacao = DS_OCUPACAO) |> 
+  filter(cargo == 'PREFEITO') |> 
+  group_by(ano, estado, partido, nr_candidato, nm_candidato) |> # some of the candidates are repeated. 
+  summarise(idade = max(idade),
+            genero = first(genero),
+            educacao = first(educacao),
+            cor_raca = first(cor_raca),
+            ocupacao = first(ocupacao))
+# this dataframe had many errors.
+
+df_candidates_details |> head(3)
+
+```
+
+## creating a complete candidate dataframe.
+
+With personal characteristics, votes recieved, IBGE's municipality code
+and electoral population
+
+what lacks here is municipality information. the most important
+information we should have here is the IBGE municipality code. With this
+code we\`ll be able to collect and implement complementary information
+from most sources.
+
+### IBGE CODE
+
+```{r creating complete candidates dataframe, cache=TRUE}
+
+cd_ibge <- read_csv("Dados/municipios_brasileiros_tse.csv") |> 
+  select(codigo_tse, codigo_ibge) |>           
+  mutate(codigo_ibge_sus = as.character(codigo_ibge),
+         codigo_ibge_sus = substring(codigo_ibge_sus, 1, 6),
+         codigo_ibge_sus = as.numeric(codigo_ibge_sus))
+
+```
+
+### GEOBR
+
+A first example of data that can be implemented throug IBGE's
+municipality code is the geometry of each municipality
+
+```{r GEOBR adicionando geometrias, cache = TRUE}
+
+muni_geomentry <- read_municipality(code_muni = 'all') |> 
+  select(code_muni, geom)
+
+```
+
+### POPULATION
+
+```{r}
+
+pop_censo <- read_xlsx("Dados/pop-sexo-censo-2010.xlsx") |> 
+  rename(cd_muni = Município,
+         pop_mas = Masculino, 
+         pop_fem = Feminino) |> 
+  mutate(cd_muni = substr(cd_muni,1, 6),
+         cd_muni = as.numeric(cd_muni),
+         pop_total = pop_mas + pop_fem,
+         prop_fem_pop = pop_fem/pop_total)
+
+```
+
+## CANDIDATES - DataFrame
+
+```{r creating complete candidates dataframe}
+
+candidates <- df_candidates_votes |> 
+  left_join(df_candidates_details, by = c('ano', 'estado', 'nr_candidato', 'nm_candidato', 'partido')) |> 
+  left_join(cd_ibge, by= c('cd_municipio_tse' = 'codigo_tse')) |> 
+  left_join(muni_geomentry, by=c('codigo_ibge' = 'code_muni')) |> 
+  left_join(df_pop_votante, by= c('ano', 'estado', 'cd_municipio_tse', 'nm_municipio')) |>
+  left_join(pop_censo, by = c('codigo_ibge_sus' = 'cd_muni')) |> 
+  mutate(genero = ifelse(genero %in% c("NÃO INFORMADO", "NÃO DIVULGÁVEL"), NA, genero))
+
+
+```
+
+
+
+```{r}
+# saveRDS(candidates, "candidates.rds")
+# 
+candidates <- readRDS('candidates.rds')
+
+```
+
+
+```{r visual - gender of all mayors elected}
+
+candidates |>
+  filter(resultado == 'Eleito') |> 
+  ggplot(aes(fill = genero)) + 
+  geom_sf(aes(geometry = geom), color = NA) +
+  facet_wrap(~ ano, ncol = 3) + 
+  theme_void() +
+  labs(title = "Distribuição de Candidatos Eleitos por Gênero",
+       subtitle = "Eleições de 2000 a 2020",
+       fill = "") + 
+  scale_fill_manual(values = c("#ff7373", "#7373ff", 'white'),
+                    labels = c("Mulher Eleita", "Homem Eleito", 'Não Informado')) +
+  labs(caption = "Por InsperData") +
+  theme(
+    legend.position = "bottom",
+    text=element_text(family="Segoe UI"),
+    plot.subtitle = element_text(margin = margin(b = 6)))
+
+
+
+```
+
+
+## Creating Male x Female candidates dataframe
+
+```{r}
+mayors <- candidates |> 
+  group_by(ano, estado, cd_municipio_tse) |> 
+  arrange(desc(total_votos)) |> 
+  slice_head(n = 2) |> 
+  filter(!is.na(genero)) |> 
+  group_by(ano, estado, cd_municipio_tse) |> 
+  filter(n_distinct(genero) == 2) |> 
+  mutate(mg_fem = (total_votos[genero == 'FEMININO'] - total_votos[genero == 'MASCULINO'])/sum(total_votos),
+         pop_total = sum(pop_mas + pop_fem)) |>
+  filter(resultado == 'Eleito', pop_votante <= 200000)
+
+
+```
+
+
+# SINAN 2008 - 2022
+
+path_dbf = 'dados/sinan_dbf'
+
+list <- list.files(path = path_dbf, pattern = "\\.dbf$", full.names = TRUE) 
+
+list_of_dfs <- lapply(list, read.dbf)
+
+sinan_raw <- do.call(rbind, list_of_dfs)
+
+saveRDS(sinan_raw, "sinan_raw.rds")
+
+```{r}
+
+sinan_raw <- readRDS('sinan_raw.rds')
+
+```
+
+
+
+```{r, cache=TRUE}
+
+sinan_df <- sinan_raw |> 
+  select(
+    ano_nasc = ANO_NASC,
+    tp_lesao = CIRC_LESAO, #(x85 - y09)
+    ano = NU_ANO,
+    cd_uf_not = SG_UF_NOT,
+    cd_muni_not = ID_MUNICIP,
+    idade = NU_IDADE_N,
+    sexo = CS_SEXO,
+    gestante = CS_GESTANT,
+    raca = CS_RACA,
+    escolaridade = CS_ESCOL_N,
+    cd_uf_res = SG_UF,
+    cd_muni_res = ID_MN_RESI,
+    conjugal = SIT_CONJUG,
+    cd_uf_ocor = SG_UF_OCOR,
+    cd_muni_ocor = ID_MN_OCOR,
+    hora_ocor = HORA_OCOR,
+    local_ocor = LOCAL_OCOR,
+    outras_vezes = OUT_VEZES,
+    v_autop = LES_AUTOP,
+    motivo_viol = VIOL_MOTIV, # (1 = sexismo, 2 = homofobia, 3 = racismo)
+    v_fisica = VIOL_FISIC, # (1 = sim, 2 = nao) 
+    v_psico = VIOL_PSICO,
+    v_infantil = VIOL_INFAN,
+    v_tort = VIOL_TORT,
+    v_sexu = VIOL_SEXU,
+    v_finan = VIOL_FINAN,
+    v_negli = VIOL_NEGLI,
+    agressor_sexo = AUTOR_SEXO,
+    evolucao = EVOLUCAO) |> 
+  mutate(tp_lesao = as.character(tp_lesao),
+         idade_ofc = as.numeric(as.character(ano))  - as.numeric(as.character(ano_nasc))) |> 
+  select(idade_ofc, ano_nasc, ano, everything())|> 
+  filter(idade_ofc >= 15 & idade_ofc <= 49)
+
+
+```
+
+
+
+## Agrupando dados para MANDATO
+
+
+
+```{r}
+
+
+notificacoes_df <- sinan_df |>
+  mutate(tp_lesao = as.factor(tp_lesao),
+         cd_muni_res = as.numeric(as.character(cd_muni_res)),
+         ano = as.numeric(as.character(ano))) |> 
+  group_by(ano, cd_muni_res) |> 
+  summarise(noti_total = n(),
+            noti_autop = sum(v_autop == 1),
+            noti_fem_autop = sum(v_autop == 1 & sexo == 'F'),
+            noti_fem = sum(sexo == 'F'),
+            noti_fisica = sum(v_fisica == 1),
+            noti_fem_fisica = sum(v_fisica == 1 & sexo == 'F'),            
+            noti_psico = sum(v_psico == 1),
+            noti_fem_psico = sum(v_psico == 1 & sexo == 'F'),
+            noti_infantil = sum(v_infantil == 1),
+            noti_fem_infantil = sum(v_infantil == 1 & sexo == 'F'),
+            noti_tort = sum(v_tort == 1),
+            noti_fem_tort = sum(v_tort == 1 & sexo == 'F'),
+            noti_sexu = sum(v_sexu == 1),
+            noti_fem_sexu = sum(v_sexu == 1 & sexo == 'F'),
+            noti_finan = sum(v_finan == 1),
+            noti_fem_finan = sum(v_finan == 1 & sexo == 'F'),
+            noti_negli = sum(v_negli == 1),
+            noti_fem_negli = sum(v_negli == 1 & sexo == 'F')) |>  
+  mutate(mandato = case_when( 
+    ano %% 4 == 0 ~ ano - 4,
+    ano %% 4 == 1 ~ ano - 1,
+    ano %% 4 == 2 ~ ano - 2,
+    ano %% 4 == 3 ~ ano - 3)) |>
+  group_by(mandato, cd_muni_res) |> 
+  summarise(noti_total_mandato = sum(noti_total),
+            noti_fem_mandato = sum(noti_fem),
+            noti_autop_mandato = sum(noti_autop),
+            noti_fem_autop_mandato = sum(noti_fem_autop),
+            noti_fisica_mandato = sum(noti_fisica),
+            noti_fem_fisica_mandato = sum(noti_fem_fisica),
+            noti_psico_mandato = sum(noti_psico),
+            noti_fem_psico_mandato = sum(noti_fem_psico),
+            noti_infantil_mandato = sum(noti_infantil),
+            noti_fem_infantil_mandato = sum(noti_fem_infantil),
+            noti_tort_mandato = sum(noti_tort),
+            noti_fem_tort_mandato = sum(noti_fem_tort),
+            noti_sexu_mandato = sum(noti_sexu),
+            noti_fem_sexu_mandato = sum(noti_fem_sexu),
+            noti_finan_mandato = sum(noti_finan),
+            noti_fem_finan_mandato = sum(noti_fem_finan),
+            noti_negli_mandato = sum(noti_negli),
+            noti_fem_negli_mandato = sum(noti_fem_negli)) |> 
+  mutate(mutate(across(starts_with("noti_"), ~ replace_na(., 0))))
+
+```
+
+
+# Juntando dados do tse com dados do sinan
+
+
+```{r}
+
+df_terms <- mayors |> 
+  left_join(notificacoes_df, by = c('ano' = 'mandato', 'codigo_ibge_sus' = 'cd_muni_res')) |> 
+  filter(ano >= 2008 & ano <= 2020,
+         nm_candidato != 'JAILSON DA COSTA ALVES') |> 
+  mutate(mulher_eleita = ifelse(mg_fem > 0, TRUE, FALSE),
+       across(starts_with('noti_') & ends_with('_mandato'), 
+              ~ (./pop_total)*100000),
+       across(starts_with('noti_') & ends_with('_mandato'), 
+              ~ replace_na(., 0)),
+       cd_municipio_tse = as.factor(cd_municipio_tse),
+       ano = as.factor(ano))
+  
+```
+
+
+### HISTOGRAMA - distribuição da margem das eleicoes
+```{r}
+
+df_terms |> 
+  ggplot(aes(x = mg_fem, fill = mulher_eleita)) + 
+  geom_histogram(boundary = 0, binwidth = 0.05, color = 'white') + 
+  geom_vline(xintercept = 0) +
+  scale_fill_manual(values = c("#7373ff", "#ff7373"),
+                    labels = c("Homem Eleito", "Mulher Eleita")) +
+  labs(title = "Distribuição de Margens de Vitória em Municípios Brasileiros",
+       subtitle = "Eleições entre Homens e Mulheres (2008 - 2016)",
+       x = "Margem de Vitória de Mulheres",
+       y = NULL,
+       color = 'Woman Elected',
+       fill = NULL) + 
+  theme_minimal() + 
+  theme(legend.position = "top",
+        plot.caption = element_text(color = "#3494ba", size = 11),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 11, color = 'black'),
+        axis.title.y = element_text(margin = margin(r = 10, unit = "pt"), size = 11), 
+        axis.title.x = element_text(margin = margin(t = 10, unit = "pt"), size = 11),
+        text=element_text(family="Segoe UI", size=12)) +
+  scale_x_continuous(labels = scales::percent)
+
+```
+
+
+# Identification Hypothesis: discontinuity
+
+```{r}
+
+rdplot(df_terms$noti_fem_autop_mandato, df_terms$mg_fem, c = 0, nbins = c(100, 100), kernel = 'triangular', x.lim = c(-.50,.5), y.lim = c(0, 150), p=1)
+  
+rdplot(df_terms$tx_noti_fem_mandato, df_terms$mg_fem, c = 0, nbins = c(100, 100), kernel = 'triangular', x.lim = c(-.20,.20), y.lim = c(0, 150))
+
+rdplot(df_terms$tx_noti_fisica_mandato, df_terms$mg_fem, c = 0, nbins = c(100, 100), kernel = 'triangular', x.lim = c(-.20,.20), y.lim = c(0,100))
+  
+rdplot(df_terms$tx_noti_fem_fisica_mandato, df_terms$mg_fem, c = 0, nbins = c(100, 100), kernel = 'triangular', x.lim = c(-.20,.20), y.lim = c(0, 100))
+
+rdplot(df_terms$noti_psico_mandato, df_terms$mg_fem, c = 0, nbins = c(50, 50), kernel = 'uniform', y.lim = c(0, 50), x.lim = c(-.20,.20), p=1)
+
+rdplot(df_terms$noti_fem_psico_mandato, df_terms$mg_fem, c = 0, nbins = c(100, 100), kernel = 'triangular', x.lim = c(-.20,.20), y.lim = c(0, 50), p=1)
+
+
+```
+
+
+```{r}
+
+controls <- model.matrix(~ pop_total + prop_fem_pop + ano, data = df_terms)
+
+rd_robust_result <- rdrobust(df_terms$noti_total_mandato, df_terms$mg_fem,
+                               covs = controls,
+                               c = 0,
+                               kernel = 'uniform',
+                               cluster = df_terms$cd_municipio_tse)
+
+summary(rd_robust_result)
+
+
+```
+
+```{r}
+
+controls <- model.matrix(~ pop_total + prop_fem_pop + ano + partido + educacao, data = df_terms)
+
+rdrobust_result <- rdrobust(df_terms$noti_autop_mandato, df_terms$mg_fem,
+                              covs = controls,
+                              c = 0,
+                              kernel = 'uniform',
+                              cluster = df_terms$cd_municipio_tse)
+
+summary(rdrobust_result)
+
+```
+
+
+```{r}
+
+dependent <- c("noti_total_mandato",
+               "noti_fem_mandato",
+               "noti_fisica_mandato",
+               "noti_fem_fisica_mandato",
+               "noti_psico_mandato",
+               "noti_fem_psico_mandato")
+
+
+results <- map_df(dependent, ~{rdrobust_result <- rdrobust(df_terms[[.]], df_terms$mg_fem,
+                              covs = controls,
+                              c = 0,
+                              kernel = 'uniform',
+                              cluster = df_terms$cd_municipio_tse)
+
+  data.frame(
+    dependent_var = .,
+    band_w = rdrobust_result$bws[1],
+    coef = rdrobust_result$coef[3],
+    p_value = rdrobust_result$pv[3],
+    n_obs_mas = rdrobust_result$N_h[1],
+    n_obs_fem = rdrobust_result$N_h[2])})
+
+  
+
+results |> gt()
+
+
+```
+
+# ROBUSTEZ
+## BETA e Pvalor na QUEBRA
+```{r}
+
+bandwidths <- seq(.05, 1, by = .1)
+
+results_df <- data.frame(bandwidth = numeric(), p_value = numeric(), beta = numeric())
+
+for (bw in bandwidths) {
+  rd_robust_result <- rdrobust(df_terms$tx_noti_total_mandato, df_terms$mg_fem,
+                               covs = controls,
+                               c = 0,
+                               kernel = 'uniform',
+                               cluster = df_terms$cd_municipio_tse,
+                               h = bw)
+
+
+  pv <- rd_robust_result$pv[3]
+  beta <- rd_robust_result$coef[3]
+  
+  results_df <- rbind(results_df, data.frame(bandwidth = bw, p_value = pv, beta = beta))
+  
+}
+results_df |> 
+  ggplot(aes(y = p_value, x = bandwidth)) + 
+  geom_line() + 
+  labs(title = "P-valor vs. Largura de Banda",
+       x = "Largura de Banda",
+       y = "P-valor")
+
+results_df |> 
+  ggplot(aes(y = beta, x = bandwidth)) + 
+  geom_line() + 
+  labs(title = "beta vs. Largura de Banda",
+       x = "Largura de Banda",
+       y = "beta")
+
+
+```
+
+```{r}
+
+
+
+```
+
+
