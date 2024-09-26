@@ -1,7 +1,7 @@
 ---
-title: "close-elections"
+title: ""
 author: "Vandrade"
-date: "2024-06-10"
+date: "2024/13/06"
 output: html_document
 editor_options: 
   markdown: 
@@ -150,7 +150,7 @@ and electoral population
 
 what lacks here is municipality information. the most important
 information we should have here is the IBGE municipality code. With this
-code we\`ll be able to collect and implement complementary information
+code we`ll be able to collect and implement complementary information
 from most sources.
 
 ### IBGE CODE

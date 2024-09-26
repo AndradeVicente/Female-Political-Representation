@@ -1,0 +1,173 @@
+---
+title: "TSE-Margin-Victory"
+author: "Vandrade"
+date: "2024-06-10"
+output: html_document
+---
+
+# Library and Setup
+
+```{r}
+
+library(tidyverse)
+library(electionsBR)
+library(geobr)
+library(readxl)
+
+year = c(2000, 2004, 2008, 2012, 2016, 2020)
+
+```
+
+# ElectionsBR 
+
+## Electoral Zones Data
+```{r}
+
+fun_vote_mun_zone <- function(year) {
+  elections_tse(year, type = 'vote_mun_zone', uf = 'all')}
+
+df_vote_mun_zone <- map_df(year, fun_vote_mun_zone)
+
+df_candidates_votes <- df_vote_mun_zone |> 
+  mutate(votos_zona = coalesce(QT_VOTOS_NOMINAIS_VALIDOS, QT_VOTOS_NOMINAIS)) |> 
+  select(ano = ANO_ELEICAO,
+         estado = SG_UF,
+         cd_municipio_tse = CD_MUNICIPIO,
+         nm_municipio = NM_MUNICIPIO,
+         zona = NR_ZONA,
+         cargo = DS_CARGO,
+         nr_candidato = NR_CANDIDATO,
+         nm_candidato = NM_CANDIDATO,
+         votos_zona,
+         partido = SG_PARTIDO) |> 
+  filter(cargo == 'Prefeito') |> 
+  group_by(ano, estado, cd_municipio_tse, nr_candidato) |> 
+  summarize(nm_municipio = first(nm_municipio),
+            nm_candidato = first(nm_candidato),
+            total_votos = sum(votos_zona),
+            partido = first(partido)) |> 
+  group_by(ano, estado, cd_municipio_tse) |> 
+  mutate(resultado = ifelse(total_votos == max(total_votos), 'Eleito', 'Não Eleito')) |> 
+  mutate(cd_municipio_tse = as.numeric(cd_municipio_tse))
+ 
+```
+
+
+## Details about Electoral Zones (most importantly: Electoral Population)
+```{r}
+
+fun_details_mun_zone <- function(year) {
+  elections_tse(year, type = 'details_mun_zone', uf = 'all')}
+
+df_details_mun_zone <- map_df(year, fun_details_mun_zone)
+
+df_pop_votante <- df_details_mun_zone |> 
+  select(ano = ANO_ELEICAO,
+         estado = SG_UF,
+         cd_municipio_tse = CD_MUNICIPIO,
+         nm_municipio = NM_MUNICIPIO,
+         zona = NR_ZONA,
+         cargo = DS_CARGO,
+         pop_votante = QT_APTOS,
+         nr_abstencoes = QT_ABSTENCOES) |> 
+  filter(cargo == 'Prefeito') |> 
+  group_by(ano, estado, cd_municipio_tse) |> 
+  summarize(nm_municipio = first(nm_municipio),
+            pop_votante = sum(pop_votante)) |> 
+  mutate(cd_municipio_tse = as.numeric(cd_municipio_tse))
+
+```
+
+
+## Details about Candidates
+
+```{r}
+
+fun_details_mun_zone <- function(year) {
+  elections_tse(year, type = 'candidate', uf = 'all') |> 
+    mutate(NR_PROTOCOLO_CANDIDATURA = as.character(NR_PROTOCOLO_CANDIDATURA),
+           NR_CPF_CANDIDATO = as.character(NR_CPF_CANDIDATO),
+           CD_COR_RACA = as.character(CD_COR_RACA))}
+
+df_fun_candidates <- map_df(year, fun_details_mun_zone)
+
+df_candidates_details <- df_fun_candidates |> 
+  select(ano = ANO_ELEICAO, #selecionando e filtrando as variaveis
+         estado = SG_UF,
+         cargo = DS_CARGO,
+         nr_candidato = NR_CANDIDATO,
+         nm_candidato = NM_CANDIDATO,
+         partido = SG_PARTIDO,
+         idade = NR_IDADE_DATA_POSSE,
+         genero = DS_GENERO,
+         educacao = DS_GRAU_INSTRUCAO,
+         cor_raca = DS_COR_RACA,
+         ocupacao = DS_OCUPACAO) |> 
+  filter(cargo == 'PREFEITO') |> 
+  group_by(ano, estado, partido, nr_candidato, nm_candidato) |> # some of the candidates are repeated. 
+  summarise(idade = max(idade),
+            genero = first(genero),
+            educacao = first(educacao),
+            cor_raca = first(cor_raca),
+            ocupacao = first(ocupacao))
+
+```
+
+# Aditional Information
+
+```{r}
+
+cd_ibge <- read_csv("Dados/municipios_brasileiros_tse.csv") |> 
+  select(codigo_tse, codigo_ibge) |>           
+  mutate(codigo_ibge_sus = as.character(codigo_ibge),
+         codigo_ibge_sus = substring(codigo_ibge_sus, 1, 6),
+         codigo_ibge_sus = as.numeric(codigo_ibge_sus))
+
+muni_geomentry <- read_municipality(code_muni = 'all') |> 
+  select(code_muni, geom)
+
+pop_censo <- read_xlsx("Dados/pop-sexo-censo-2010.xlsx") |> 
+  rename(cd_muni = Município,
+         pop_mas = Masculino, 
+         pop_fem = Feminino) |> 
+  mutate(cd_muni = substr(cd_muni,1, 6),
+         cd_muni = as.numeric(cd_muni),
+         pop_total = pop_mas + pop_fem,
+         prop_fem_pop = pop_fem/pop_total)
+
+```
+
+
+# CANDIDATES dataframe
+
+```{r}
+
+candidates <- df_candidates_votes |> 
+  left_join(df_candidates_details, by = c('ano', 'estado', 'nr_candidato', 'nm_candidato', 'partido')) |> 
+  left_join(cd_ibge, by= c('cd_municipio_tse' = 'codigo_tse')) |> 
+  left_join(muni_geomentry, by=c('codigo_ibge' = 'code_muni')) |> 
+  left_join(df_pop_votante, by= c('ano', 'estado', 'cd_municipio_tse', 'nm_municipio')) |>
+  left_join(pop_censo, by = c('codigo_ibge_sus' = 'cd_muni')) |> 
+  mutate(genero = ifelse(genero %in% c("NÃO INFORMADO", "NÃO DIVULGÁVEL"), NA, genero))
+
+```
+
+## creating RDS file 
+```{r}
+
+saveRDS(candidates, file = "Dados/candidates.rds")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
