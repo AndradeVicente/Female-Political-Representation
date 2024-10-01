@@ -1,0 +1,94 @@
+---
+title: "close-elections-simsus"
+author: "Vandrade"
+date: "2024-09-29"
+output: html_document
+---
+
+o foco da análise é o efeito de ter uma mulher como prefeita nos numeros de "deaths of despair" (Case & Deaton).
+
+# Importando Bibliotecas
+```{r}
+
+library(tidyverse)
+library(sf)
+
+```
+
+
+# Base TSE - Prefeitos
+
+```{r}
+
+candidatos <- readRDS("Dados/candidates.rds")
+
+prefeitos <- candidatos |> 
+  group_by(ano, estado, cd_municipio_tse) |> 
+  arrange(desc(total_votos)) |> 
+  slice_head(n = 2) |> 
+  filter(!is.na(genero)) |> 
+  group_by(ano, estado, cd_municipio_tse) |> 
+  filter(n_distinct(genero) == 2) |> 
+  mutate(mg_fem = (total_votos[genero == 'FEMININO'] - total_votos[genero == 'MASCULINO'])/sum(total_votos),
+         pop_total = sum(pop_mas + pop_fem)) |>
+  filter(resultado == 'Eleito', pop_votante <= 200000)
+
+```
+
+# Base DataSUS - SIM 
+
+
+```{r}
+simsus <- readRDS("Dados/simsus_filtrado.rds")
+
+```
+
+## Adultos em geral (pessoas entre 15 e 45 anos sem filtrar por sexo)
+
+
+```{r}
+
+simsus |> 
+  filter(idade_15_45 == TRUE) |> 
+  group_by(mandato, cd_muni_ibge) |> 
+  summarise(
+    y_total_homicidio = n(),
+    y_total_mental = sum(y_suicide == TRUE | y_alcoholic_disease == TRUE | y_overdose == TRUE),
+    y_suicide = sum(y_suicide == TRUE),
+    y_alcoholic_disease = sum(y_alcoholic_disease == TRUE),
+    y_overdose = sum(y_overdose == TRUE)) 
+ 
+  
+  
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
