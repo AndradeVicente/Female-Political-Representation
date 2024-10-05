@@ -39,17 +39,19 @@ prefeitos <- candidatos |>
 
 
 ```{r}
+
 simsus <- readRDS("Dados/simsus_filtrado.rds")
 
 ```
 
 ## Adultos em geral (pessoas entre 15 e 45 anos sem filtrar por sexo)
 
-
+# Suicidio Feminino
 ```{r}
 
-simsus |> 
-  filter(idade_15_45 == TRUE) |> 
+simsus_fem <- simsus |> 
+  filter(idade_15_45 == TRUE,
+         sexo == 2) |> # 1- Masculino // 2 - Feminino
   group_by(mandato, cd_muni_ibge) |> 
   summarise(
     y_total_homicidio = n(),
@@ -64,6 +66,22 @@ simsus |>
 ```
 
 
+# Suicidio Masculino
+
+```{r}
+
+simsus_mas <- simsus |> 
+  filter(idade_15_45 == TRUE,
+         sexo == 1) |> # 1- Masculino // 2 - Feminino
+  group_by(mandato, cd_muni_ibge) |> 
+  summarise(
+    y_total_homicidio = n(),
+    y_total_mental = sum(y_suicide == TRUE | y_alcoholic_disease == TRUE | y_overdose == TRUE),
+    y_suicide = sum(y_suicide == TRUE),
+    y_alcoholic_disease = sum(y_alcoholic_disease == TRUE),
+    y_overdose = sum(y_overdose == TRUE)) 
+
+```
 
 
 
