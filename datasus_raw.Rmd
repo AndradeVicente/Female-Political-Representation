@@ -26,6 +26,7 @@ df_simsus_raw <- readRDS('Dados/simsus_96_22.rds')
 ```
 
 lococor = Local de ocorrência do óbito, Ignorado1: Hospital2: Outro estab saúde3: Domicílio4: Via Pública 5
+
 ```{r}
 #cid_antec_conseq = linhab, linhac com mesmo rotulo, mas sao diferentes)
       
@@ -36,7 +37,8 @@ df_simsus <- df_simsus_raw |>
          cd_muni_ibge = codmunres,
          causabas,
          UF,
-         lococor) |>  
+         lococor,
+         sexo) |>  
 
   mutate(dt_obito = as.Date(dt_obito, format="%d%m%Y"),
          ano_obito = year(dt_obito),
@@ -57,7 +59,7 @@ df_simsus <- df_simsus_raw |>
                              ano_obito %% 4 == 2 ~ ano_obito - 2,
                              ano_obito %% 4 == 3 ~ ano_obito - 3)) 
   
-# saveRDS(df_simsus, file = "Dados/simsus_filtrado.rds")
+saveRDS(df_simsus, file = "Dados/simsus_filtrado.rds")
 
 ```
 
