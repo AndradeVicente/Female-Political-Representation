@@ -12,7 +12,7 @@ o foco da análise é o efeito de ter uma mulher como prefeita nos numeros de "d
 
 library(tidyverse)
 library(sf)
-
+library(rdrobust)
 ```
 
 
@@ -40,9 +40,11 @@ prefeitos <- candidatos |>
 
 ```{r}
 
-simsus <- readRDS("Dados/simsus_filtrado.rds")
+simsus <- readRDS("Dados/simsus_filtrado.rds") |> 
+  mutate(cd_muni_ibge = as.numeric(cd_muni_ibge))
 
 ```
+
 
 ## Adultos em geral (pessoas entre 15 e 45 anos sem filtrar por sexo)
 
@@ -58,10 +60,20 @@ simsus_fem <- simsus |>
     y_total_mental = sum(y_suicide == TRUE | y_alcoholic_disease == TRUE | y_overdose == TRUE),
     y_suicide = sum(y_suicide == TRUE),
     y_alcoholic_disease = sum(y_alcoholic_disease == TRUE),
-    y_overdose = sum(y_overdose == TRUE)) 
- 
+    y_overdose = sum(y_overdose == TRUE))
+
+df_prefeitos_simsus <- prefeitos |> 
+  left_join(simsus_fem, by = c('ano' = 'mandato', 'codigo_ibge' = 'cd_muni_ibge')) |> 
+  mutate(codigo_ibge = as.factor(codigo_ibge))
   
-  
+```
+
+```{r}
+
+rdrobust(,
+         cluster = codigo_ibge)
+
+
 
 ```
 
