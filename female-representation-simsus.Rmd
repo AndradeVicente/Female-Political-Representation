@@ -30,42 +30,94 @@ prefeitos <- candidatos |>
   group_by(ano, estado, cd_municipio_tse) |> 
   filter(n_distinct(genero) == 2) |> 
   mutate(mg_fem = (total_votos[genero == 'FEMININO'] - total_votos[genero == 'MASCULINO'])/sum(total_votos),
-         pop_total = sum(pop_mas + pop_fem)) |>
+         pop_total = pop_mas + pop_fem,
+         educacao_agr = case_when(educacao %in% c('1º GRAU COMPLETO', '1º GRAU INCOMPLETO', 'ENSINO FUNDAMENTAL COMPLETO', 'ENSINO FUNDAMENTAL INCOMPLETO', 'FUNDAMENTAL COMPLETO', 'FUNDAMENTAL INCOMPLETO', 'ANALFABETO', 'LÊ E ESCREVE') ~ 'fundamental',
+           educacao %in% c('2º GRAU COMPLETO', '2º GRAU INCOMPLETO', 'ENSINO MÉDIO COMPLETO', 'ENSINO MÉDIO INCOMPLETO', 'MÉDIO COMPLETO', 'MÉDIO INCOMPLETO') ~ 'medio',
+           educacao %in% c('SUPERIOR COMPLETO', 'SUPERIOR INCOMPLETO') ~ 'superior',
+           TRUE ~ NA_character_)) |>
   filter(resultado == 'Eleito', pop_votante <= 200000)
+
+
 
 ```
 
 # Base DataSUS - SIM 
 
 
-```{r}
 
-simsus <- readRDS("Dados/simsus_filtrado.rds") |> 
-  mutate(cd_muni_ibge = as.numeric(cd_muni_ibge))
+# Adultos em geral (pessoas entre 15 e 45)
 
-```
-
-
-## Adultos em geral (pessoas entre 15 e 45 anos sem filtrar por sexo)
-
-# Suicidio Feminino
+## despair em geral
 ```{r}
 
 simsus_fem <- simsus |> 
-  filter(idade_15_45 == TRUE,
+  filter(idade_15_45 == TRUE, 
          sexo == 2) |> # 1- Masculino // 2 - Feminino
   group_by(mandato, cd_muni_ibge) |> 
   summarise(
-    y_total_homicidio = n(),
     y_total_mental = sum(y_suicide == TRUE | y_alcoholic_disease == TRUE | y_overdose == TRUE),
     y_suicide = sum(y_suicide == TRUE),
     y_alcoholic_disease = sum(y_alcoholic_disease == TRUE),
     y_overdose = sum(y_overdose == TRUE))
 
+```
+
+
+```{r}
+
 df_prefeitos_simsus <- prefeitos |> 
   left_join(simsus_fem, by = c('ano' = 'mandato', 'codigo_ibge' = 'cd_muni_ibge')) |> 
-  mutate(codigo_ibge = as.factor(codigo_ibge))
-  
+  filter(ano >= 2004 & ano <= 2016) |> 
+  mutate(codigo_ibge = as.factor(codigo_ibge),
+         across(starts_with('y_'), ~ (./pop_total)*100000),
+         across(starts_with('y_'), ~ replace_na(., 0)),
+         eleita = ifelse(genero == 'FEMININO', 1, 0),
+         ano = as.factor(ano),
+         educacao_agr = as.factor(educacao_agr),
+         partido = as.factor(partido)) 
+
+
+```
+
+## DESCRITIVA
+
+cct = 0.160
+
+*OLS
+	xi: reg `var' female  i.term , rob cluster(id_city)
+	outreg2 `var' female using JDE_TABLE3_A, bdec(3) nocons tex(nopretty) replace
+ 
+	*LLR CCT
+	xi: reg `var' female MV_female inter i.term if abs(MV_female)<0.158, rob cluster(id_city)
+	outreg2 `var' female using JDE_TABLE3_A, bdec(3) nocons tex(nopretty) append
+
+```{r}
+
+controls <- model.matrix(~ ano + prop_fem_pop + educacao_agr + partido, data = df_prefeitos_simsus)
+
+
+rdrobust(y = df_prefeitos_simsus$y_total_mental,
+         x = df_prefeitos_simsus$mg_fem, covs = controls,
+         cluster = df_prefeitos_simsus$codigo_ibge,
+         kernel = 'triangular') |> summary()
+
+ 
+lm(y_total_mental ~ eleita + ano * mg_fem  + prop_fem_pop, data = df_prefeitos_simsus |> filter(abs(mg_fem) <= .08)) |> summary()
+
+lm(y_total_mental ~ eleita + ano, data = df_prefeitos_simsus) |> summary()
+
+
+rdplot(y = df_prefeitos_simsus$y_overdose,
+       x = df_prefeitos_simsus$mg_fem)
+
+```
+
+
+### Estimando CCT
+```{r}
+
+rdrobust(y = y_total)
+
 ```
 
 ```{r}
@@ -78,7 +130,7 @@ rdrobust(,
 ```
 
 
-# Suicidio Masculino
+## Suicidio Masculino
 
 ```{r}
 
