@@ -52,7 +52,7 @@ prefeitos <- candidatos |>
 
 simsus_fem <- simsus |> 
   filter(idade_15_45 == TRUE, 
-         sexo == 2) |> # 1- Masculino // 2 - Feminino
+         sexo == 1) |> # 1- Masculino // 2 - Feminino
   group_by(mandato, cd_muni_ibge) |> 
   summarise(
     y_total_mental = sum(y_suicide == TRUE | y_alcoholic_disease == TRUE | y_overdose == TRUE),
@@ -97,7 +97,7 @@ controls <- model.matrix(~ ano + prop_fem_pop + educacao_agr + partido, data = d
 
 
 rdrobust(y = df_prefeitos_simsus$y_total_mental,
-         x = df_prefeitos_simsus$mg_fem, covs = controls,
+         x = df_prefeitos_simsus$mg_fem,
          cluster = df_prefeitos_simsus$codigo_ibge,
          kernel = 'triangular') |> summary()
 
