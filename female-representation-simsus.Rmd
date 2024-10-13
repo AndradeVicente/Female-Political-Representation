@@ -113,23 +113,6 @@ rdplot(y = df_prefeitos_simsus$y_overdose,
 ```
 
 
-### Estimando CCT
-```{r}
-
-rdrobust(y = y_total)
-
-```
-
-```{r}
-
-rdrobust(,
-         cluster = codigo_ibge)
-
-
-
-```
-
-
 ## Suicidio Masculino
 
 ```{r}
