@@ -6,23 +6,12 @@ output: html_document
 ---
 
 ```{r}
-
-library(haven)
 library(tidyverse)
-
-
 ```
 
-
-    # SIH 
-         # mental_behavioral_dis_f00_f99 = ifelse(causabas >= "F00" & causabas <= "F99", TRUE, FALSE),
-         # drug_abuse_mental_dis_f00_f19 = ifelse(causabas >= "F00" & causabas <= "F19", TRUE, FALSE),
-         # schiz_delus_dis_f20_f29 =, 
-         # mood_dis_f30_f39 =,
-         
-         
 ```{r}
 df_simsus_raw <- readRDS('Dados/simsus_96_22.rds')
+
 ```
 
 lococor = Local de ocorrência do óbito, Ignorado1: Hospital2: Outro estab saúde3: Domicílio4: Via Pública 5
@@ -30,39 +19,68 @@ lococor = Local de ocorrência do óbito, Ignorado1: Hospital2: Outro estab saú
 ```{r}
 #cid_antec_conseq = linhab, linhac com mesmo rotulo, mas sao diferentes)
       
-df_simsus <- df_simsus_raw |>
+df_simsus_geral <- df_simsus_raw |>
   
   select(dt_obito = dtobito,
          dt_nasc = dtnasc,
          cd_muni_ibge = codmunres,
          causabas,
          UF,
-         lococor,
-         sexo) |>  
+         lococor, # 3 - domicilio / 4 - via publica
+         sexo) |>  # masculino = 1 / feminino = 2
 
   mutate(dt_obito = as.Date(dt_obito, format="%d%m%Y"),
          ano_obito = year(dt_obito),
          dt_nasc = as.Date(dt_nasc, format="%d%m%Y"),
          ano_nasc = year(dt_nasc),
+         cd_muni_ibge = substr(cd_muni_ibge, 1,6),
+
          
          idade = as.integer(difftime(dt_obito, dt_nasc, units = "days") / 365.25),
-         idade_15_45 = ifelse(idade >= 15 & idade <= 45, TRUE, FALSE),
+         
+         idade_15_49 = ifelse(idade >= 15 & idade <= 49, TRUE, FALSE),
          idade_0_15 = ifelse(idade <= 15, TRUE, FALSE),
          idade_1_15 = ifelse(idade >= 1 & idade <= 15, TRUE, FALSE),
-         
-         y_alcoholic_disease = ifelse(causabas >= "K730" & causabas <= "K749" | causabas >= "K700" & causabas <= "K709", TRUE, FALSE),
-         y_suicide = ifelse(causabas >= "X600" & causabas <= "X849" | causabas >= "Y870" & causabas <= "Y879", TRUE, FALSE),
-         y_overdose = ifelse(causabas >= "X400" & causabas <= "X459" | causabas >= "Y100" & causabas <= "Y159" | causabas >= "Y450" & causabas <= "Y459" | causabas >= "Y470" & causabas <= "Y479" | causabas >="Y490" & causabas <= "Y499", TRUE, FALSE),
+         idade_15_29 = ifelse(idade >= 15 & idade <= 29, TRUE, FALSE),
          
          mandato = case_when(ano_obito %% 4 == 0 ~ ano_obito - 4,
                              ano_obito %% 4 == 1 ~ ano_obito - 1,
                              ano_obito %% 4 == 2 ~ ano_obito - 2,
-                             ano_obito %% 4 == 3 ~ ano_obito - 3)) 
-  
-saveRDS(df_simsus, file = "Dados/simsus_filtrado.rds")
+                             ano_obito %% 4 == 3 ~ ano_obito - 3))
+
+
+
+
+saveRDS(df_simsus_geral, file = "Dados/df_simsus_geral.rds")
 
 ```
 
+# Deaths of Despair
+```{r}
+df_simsus_geral <- readRDS("Dados/df_simsus_geral.rds")
+
+df_simsus_mental <- df_simsus_geral |> 
+  mutate(y_alcoholic_disease = ifelse(causabas >= "K730" & causabas <= "K749" | causabas >= "K700" & causabas <= "K709", TRUE, FALSE),
+         y_suicide = ifelse(causabas >= "X600" & causabas <= "X849" | causabas >= "Y870" & causabas <= "Y879", TRUE, FALSE),
+         y_overdose = ifelse(causabas >= "X400" & causabas <= "X459" | causabas >= "Y100" & causabas <= "Y159" | causabas >= "Y450" & causabas <= "Y459" | causabas >= "Y470" & causabas <= "Y479" | causabas >="Y490" & causabas <= "Y499", TRUE, FALSE)) 
+  
+saveRDS(df_simsus_mental, file = "Dados/simsus-mental.rds")
+
+```
+
+# Violência Doméstica
+
+
+```{r}
+df_simsus_geral <- readRDS("Dados/df_simsus_geral.rds")
+
+df_homicides <- df_simsus_geral |> 
+  mutate(y_homicide = ifelse(substr(causabas, 1,3) >= "X85" & substr(causabas, 1,3) <= "Y09", TRUE, FALSE),
+         y_domestic_homicide = ifelse(substr(causabas, 1,3) >= "X85" & substr(causabas, 1,3) <= "Y09" & lococor == "4" , TRUE, FALSE))
+
+saveRDS(df_homicides, file = "Dados/simsus-homicidio.rds")
+
+```
 
 
 

@@ -1,0 +1,221 @@
+---
+title: "Análise PEE - Impacto da eleição de um prefeito negro no índice de homicídios"
+author: "Maria Eduarda"
+date: "2024-10-23"
+output: html_document
+---
+
+
+Importando Librarys
+```{r}
+library(tidyverse)
+library(sf)
+library(rdrobust)
+```
+
+Base de dados TSE
+
+
+```{r}
+
+candidatos <- readRDS("Dados/candidates.rds")
+
+prefeitos <- candidatos %>% 
+  filter(ano %in% c(2016, 2020)) %>% 
+  mutate(x_cor_raca = case_when(cor_raca == "PRETA" ~ "preta",
+                   cor_raca == "PARDA" ~ "preta",
+                   cor_raca == "BRANCA" ~ "branca",
+                   .default = NA)) %>% 
+  group_by(ano, estado, cd_municipio_tse) |> 
+  arrange(desc(total_votos)) |> 
+  slice_head(n = 2) %>%
+  group_by(ano, estado, cd_municipio_tse) |>
+  filter(!is.na(x_cor_raca)) |>
+  filter(n_distinct(x_cor_raca) == 2) %>% 
+  mutate(preto_eleito = ifelse(x_cor_raca == "preta" & resultado == "Eleito", 1, 0),
+         mg_preto = (total_votos[x_cor_raca == 'preta'] - total_votos[x_cor_raca == 'branca'])/sum(total_votos),
+         pop_total = pop_mas + pop_fem,
+         educacao_agr = case_when(educacao %in% c('1º GRAU COMPLETO', '1º GRAU INCOMPLETO', 'ENSINO FUNDAMENTAL COMPLETO', 'ENSINO FUNDAMENTAL INCOMPLETO', 'FUNDAMENTAL COMPLETO', 'FUNDAMENTAL INCOMPLETO', 'ANALFABETO', 'LÊ E ESCREVE') ~ 'fundamental',
+           educacao %in% c('2º GRAU COMPLETO', '2º GRAU INCOMPLETO', 'ENSINO MÉDIO COMPLETO', 'ENSINO MÉDIO INCOMPLETO', 'MÉDIO COMPLETO', 'MÉDIO INCOMPLETO') ~ 'medio',
+           educacao %in% c('SUPERIOR COMPLETO', 'SUPERIOR INCOMPLETO') ~ 'superior',
+           TRUE ~ NA_character_),
+         codigo_ibge_sus = as.character(codigo_ibge_sus)) |>
+  filter(resultado == 'Eleito', pop_votante <= 200000) |> 
+  ungroup()
+
+```
+
+
+```{r}
+
+prefeitos %>% 
+  ggplot(aes(x = mg_preto, fill = factor(preto_eleito))) + 
+  geom_histogram(boundary = 0, binwidth = 0.05, color = 'white') + 
+  geom_vline(xintercept = 0) +
+  scale_fill_manual(values = c("#e9d8a6", "#ae2012"),
+                    labels = c("Branco Eleito", "Preto Eleito")) +
+  labs(title = "Distribuição de Margens de Vitória em Municípios Brasileiros",
+       subtitle = "Eleições entre Pretos e Brancos (2016 - 2020)",
+       x = "Margem de Vitória de Negros",
+       y = NULL,
+       fill = NULL) + 
+  theme_minimal() + 
+  theme(legend.position = "top",
+        plot.caption = element_text(color = "#3494ba", size = 11),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 11, color = 'black'),
+        axis.title.y = element_text(margin = margin(r = 10, unit = "pt"), size = 11), 
+        axis.title.x = element_text(margin = margin(t = 10, unit = "pt"), size = 11)) +
+  scale_x_continuous(labels = scales::percent)
+```
+
+
+
+
+```{r}
+
+df_homicides <- readRDS("Dados/simsus-homicidio.rds") 
+
+simsus_homicidio <- df_homicides |> 
+  filter(mandato >= 2004,
+         idade_15_49 == TRUE) |> 
+  group_by(mandato, cd_muni_ibge) |> 
+  summarise(y_homicide = sum(y_homicide == TRUE)) |> 
+  ungroup() |> 
+  arrange(cd_muni_ibge, mandato) |> 
+  group_by(cd_muni_ibge) |> 
+  mutate(y_homicide_previous = lag(y_homicide))
+  
+
+
+
+```
+
+
+```{r}
+
+base_rdd <- prefeitos |> 
+  left_join(simsus_homicidio, by = c('ano' = 'mandato', 'codigo_ibge_sus' = 'cd_muni_ibge')) |> 
+  filter(ano == 2016) |> 
+  mutate(codigo_ibge = as.factor(codigo_ibge),
+         across(starts_with('y_'), ~ (./pop_total)*100000),
+         across(starts_with('y_'), ~ replace_na(., 0)),
+         ano = as.factor(ano),
+         educacao_agr = as.factor(educacao_agr),
+         partido = as.factor(partido)) |> 
+  filter(codigo_ibge != 1504752)
+
+```
+
+
+
+```{r}
+
+controls <- model.matrix(~ idade + partido + pop_total + educacao_agr, data = base_rdd)
+
+
+rdplot(base_rdd$y_homicide, base_rdd$mg_preto, c = 0, nbins = c(100, 100), kernel = 'triangular', x.lim = c(-0.169,0.169), y.lim = c(50,125), p = TRUE)
+
+
+rdrobust(base_rdd$y_homicide, base_rdd$mg_preto,
+         c = 0,
+         kernel = 'triangular',
+         cluster = base_rdd$codigo_ibge,
+         covs = controls,
+         all = TRUE,
+         p = TRUE) |> 
+  summary()
+
+
+```
+
+
+
+
+
+```{r}
+
+base_cct <- base_rdd |>
+  filter(abs(mg_preto) <= 0.169)
+
+rdplot(base_cct$y_homicide, base_cct$mg_preto, c = 0, nbins = c(10, 10), kernel = 'triangular', x.lim = c(-0.169,0.169), y.lim = c(50,125), p=TRUE)
+
+rdplot(base_rdd$y_homicide, base_rdd$mg_preto, c = 0, nbins = c(100, 100), kernel = 'triangular', x.lim = c(-0.169,0.169), y.lim = c(50,125), p=TRUE)
+
+rdplot(base_rdd$y_homicide, base_rdd$mg_preto, c = 0, nbins = c(100, 100), kernel = 'triangular', x.lim = c(-.5,.5), y.lim = c(50,125), p = TRUE)
+
+```
+
+
+
+
+robustez
+
+```{r, warning=FALSE}
+
+bandwidths <- seq(.05, 1, by = .1)
+
+df_sensibilidade_bw <- data.frame(bandwidth = numeric(), p_value = numeric(), beta = numeric())
+
+for (bw in bandwidths) {
+  rd_robust_result <- rdrobust(base_rdd$y_homicide, base_rdd$mg_preto,
+                               h = bw,
+                               c = 0,
+                               kernel = 'triangular',
+                               cluster = base_rdd$codigo_ibge,
+                               covs = controls,
+                               all = TRUE)
+
+
+  pv <- rd_robust_result$pv[3]
+  beta <- rd_robust_result$coef[3]
+  
+  df_sensibilidade_bw <- rbind(df_sensibilidade_bw, data.frame(bandwidth = bw, p_value = pv, beta = beta))}
+
+df_sensibilidade_bw |> 
+  ggplot(aes(y = p_value, x = bandwidth)) + 
+  geom_line() + 
+  labs(title = "Sensibilidade do P-Valor a Margem",
+       x = "Largura de Banda",
+       y = "P-valor") + 
+  ylim(0,1)
+
+df_sensibilidade_bw |> 
+  ggplot(aes(y = beta, x = bandwidth)) + 
+  geom_line() + 
+  labs(title = "Sensibilidade do Coeficiente a Margem",
+       x = "Largura de Banda",
+       y = "beta") 
+
+
+```
+
+```{r}
+
+
+rdplot(base_cct$y_homicide_previous, base_cct$mg_preto, c = 0, nbins = c(10, 10), kernel = 'triangular', x.lim = c(-0.169,0.169), y.lim = c(50,125), p = TRUE)
+
+
+rdrobust(base_rdd$y_homicide_previous, base_rdd$mg_preto,
+         c = 0,
+         kernel = 'triangular',
+         cluster = base_rdd$codigo_ibge,
+         covs = controls,
+         all = TRUE,
+         h = .169,
+         p = TRUE) |> 
+  summary()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+

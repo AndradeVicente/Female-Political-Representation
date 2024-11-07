@@ -9,10 +9,10 @@ o foco da análise é o efeito de ter uma mulher como prefeita nos numeros de "d
 
 # Importando Bibliotecas
 ```{r}
-
 library(tidyverse)
 library(sf)
-library(rdrobust)
+library(rdrobust) 
+library(gt)
 ```
 
 
@@ -29,7 +29,7 @@ prefeitos <- candidatos |>
   filter(!is.na(genero)) |> 
   group_by(ano, estado, cd_municipio_tse) |> 
   filter(n_distinct(genero) == 2) |> 
-  mutate(mg_fem = (total_votos[genero == 'FEMININO'] - total_votos[genero == 'MASCULINO'])/sum(total_votos),
+  mutate(mg_fem = (total_votos[genero == 'FEMININO'] - total_votos[genero == 'MASCULINO'])/total_votos,
          pop_total = pop_mas + pop_fem,
          educacao_agr = case_when(educacao %in% c('1º GRAU COMPLETO', '1º GRAU INCOMPLETO', 'ENSINO FUNDAMENTAL COMPLETO', 'ENSINO FUNDAMENTAL INCOMPLETO', 'FUNDAMENTAL COMPLETO', 'FUNDAMENTAL INCOMPLETO', 'ANALFABETO', 'LÊ E ESCREVE') ~ 'fundamental',
            educacao %in% c('2º GRAU COMPLETO', '2º GRAU INCOMPLETO', 'ENSINO MÉDIO COMPLETO', 'ENSINO MÉDIO INCOMPLETO', 'MÉDIO COMPLETO', 'MÉDIO INCOMPLETO') ~ 'medio',
@@ -43,30 +43,30 @@ prefeitos <- candidatos |>
 
 # Base DataSUS - SIM 
 
-
-
-# Adultos em geral (pessoas entre 15 e 45)
-
-## despair em geral
+## Deaths of Despair
+### Female
 ```{r}
 
-simsus_fem <- simsus |> 
+simsus_mental_raw <- readRDS("Dados/simsus-mental.rds") 
+  
+
+simsus_mental_fem <- simsus_mental_raw |> 
   filter(idade_15_45 == TRUE, 
-         sexo == 1) |> # 1- Masculino // 2 - Feminino
+         sexo == 2) |> # 1- Masculino // 2 - Feminino
+  mutate(cd_muni_ibge = as.numeric(cd_muni_ibge)) |> 
   group_by(mandato, cd_muni_ibge) |> 
   summarise(
     y_total_mental = sum(y_suicide == TRUE | y_alcoholic_disease == TRUE | y_overdose == TRUE),
     y_suicide = sum(y_suicide == TRUE),
     y_alcoholic_disease = sum(y_alcoholic_disease == TRUE),
-    y_overdose = sum(y_overdose == TRUE))
+    y_overdose = sum(y_overdose == TRUE)) 
 
 ```
-
 
 ```{r}
 
 df_prefeitos_simsus <- prefeitos |> 
-  left_join(simsus_fem, by = c('ano' = 'mandato', 'codigo_ibge' = 'cd_muni_ibge')) |> 
+  left_join(simsus_mental_fem, by = c('ano' = 'mandato', 'codigo_ibge' = 'cd_muni_ibge')) |> 
   filter(ano >= 2004 & ano <= 2016) |> 
   mutate(codigo_ibge = as.factor(codigo_ibge),
          across(starts_with('y_'), ~ (./pop_total)*100000),
@@ -79,22 +79,46 @@ df_prefeitos_simsus <- prefeitos |>
 
 ```
 
-## DESCRITIVA
+```{r}
+dependent <- c("y_total_mental",
+               "y_suicide",
+               "y_alcoholic_disease",
+               "y_overdose")
 
-cct = 0.160
+results <- map_df(dependent, ~{rdrobust_result <- rdrobust(df_prefeitos_simsus[[.]], df_prefeitos_simsus$mg_fem,
+                              # covs = controls,
+                              c = 0,
+                              kernel = 'uniform',
+                              # h = 0.05, 
+                              cluster = df_prefeitos_simsus$codigo_ibge)
 
-*OLS
-	xi: reg `var' female  i.term , rob cluster(id_city)
-	outreg2 `var' female using JDE_TABLE3_A, bdec(3) nocons tex(nopretty) replace
- 
-	*LLR CCT
-	xi: reg `var' female MV_female inter i.term if abs(MV_female)<0.158, rob cluster(id_city)
-	outreg2 `var' female using JDE_TABLE3_A, bdec(3) nocons tex(nopretty) append
+
+  data.frame(
+    'Variável_dependente' = .,
+    Bandwidth = rdrobust_result$bws[1],
+    Coeficiente = rdrobust_result$coef[3],
+    'P_valor' = rdrobust_result$pv[3],
+    'obs masculino' = rdrobust_result$N_h[1],
+    'obs feminino' = rdrobust_result$N_h[2])})
+
+  
+
+results |>
+  gt() |> 
+  tab_header('rdd')
+  # cols_label(y_total_mental = "Todos", y_suicide = 'Suicídio', y_alcoholic_disease = 'Doença alcoolica', y_overdose = 'Overdose')
+```
 
 ```{r}
+resultado <- rdrobust(y = df_prefeitos_simsus$y_suicide,
+         x = df_prefeitos_simsus$mg_fem,
+         kernel = 'triangular')
 
-controls <- model.matrix(~ ano + prop_fem_pop + educacao_agr + partido, data = df_prefeitos_simsus)
+resultado |> summary()
+```
 
+
+```{r}
 
 rdrobust(y = df_prefeitos_simsus$y_total_mental,
          x = df_prefeitos_simsus$mg_fem,
@@ -112,9 +136,7 @@ rdplot(y = df_prefeitos_simsus$y_overdose,
 
 ```
 
-
-## Suicidio Masculino
-
+### Male
 ```{r}
 
 simsus_mas <- simsus |> 
@@ -131,8 +153,90 @@ simsus_mas <- simsus |>
 ```
 
 
+## Homicidios
+
+### Female - 15/45
+```{r}
+
+df_homicides <- readRDS("Dados/simsus-homicidio.rds") 
+
+simsus_homicidio_fem <- df_homicides |> 
+  filter(idade_15_49 == TRUE, 
+         sexo == 2) |> # 1- Masculino // 2 - Feminino
+  mutate(cd_muni_ibge = as.numeric(cd_muni_ibge)) |> 
+  group_by(mandato, cd_muni_ibge) |> 
+  summarise(y_homicide = sum(y_homicide),
+            y_domestic_homicide = sum(y_domestic_homicide))
+
+```
+
+```{r}
+
+df_homicidio_fem <- prefeitos |> 
+  left_join(simsus_homicidio_fem, by = c('ano' = 'mandato', 'codigo_ibge' = 'cd_muni_ibge')) |> 
+  filter(ano >= 2004 & ano <= 2012) |> 
+  mutate(codigo_ibge = as.factor(codigo_ibge),
+         across(starts_with('y_'), ~ (./pop_total)*100000),
+         across(starts_with('y_'), ~ replace_na(., 0)),
+         eleita = ifelse(genero == 'FEMININO', 1, 0),
+         ano = as.factor(ano),
+         educacao_agr = as.factor(educacao_agr),
+         partido = as.factor(partido)) 
 
 
+```
+
+
+```{r}
+rdplot(df_homicidio_fem$y_homicide, df_homicidio_fem$mg_fem,
+       c = 0,
+       nbins = c(100, 100),
+       kernel = 'triangular',
+       h= 0.212,
+       x.lim = c(-.15,.15),
+       y.lim = c(0,5)) 
+```
+
+```{r}
+controls <- model.matrix(~ educacao_agr + pop_total + prop_fem_pop + ano + ano * mg_fem, data = df_homicidio_fem)
+
+
+rdrobust(df_homicidio_fem$y_domestic_homicide, df_homicidio_fem$mg_fem,
+         c = 0,
+         kernel = 'triangular',
+         cluster = df_homicidio_fem$codigo_ibge) |> summary()
+
+```
+
+
+
+```{r}
+dependent <- c("y_homicide",
+               "y_domestic_homicide")
+
+results <- map_df(dependent, ~ {rdrobust_result <- rdrobust(y = df_homicidio_fem[[.]], x = df_homicidio_fem$mg_fem,
+                              # covs = controls,
+                              c = 0,
+                              kernel = 'uniform',
+                              # h = 0.05, 
+                              cluster = df_homicidio_fem$codigo_ibge)
+
+
+  data.frame(
+    'Variável_dependente' = .,
+    Bandwidth = rdrobust_result$bws[1],
+    Coeficiente = rdrobust_result$coef[3],
+    'P_valor' = rdrobust_result$pv[3],
+    'obs masculino' = rdrobust_result$N_h[1],
+    'obs feminino' = rdrobust_result$N_h[2])})
+
+  
+
+results |>
+  gt() |> 
+  tab_header('rdd')
+
+```
 
 
 
