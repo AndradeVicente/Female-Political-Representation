@@ -417,7 +417,7 @@ graf_gg +
 
 controls <- model.matrix(~ idade + partido + pop_total + educacao_agr + pib_pc + prop_preta + genero + prop_pop_15_29, data = base_rdd)
 
-rdrobust(base_rdd$y_homicide, base_rdd$mg_preto,
+rdrobust(base_rdd$y_homicide_previous, base_rdd$mg_preto,
          c = 0,
          kernel = 'triangular',
          cluster = base_rdd$codigo_ibge,
@@ -426,7 +426,7 @@ rdrobust(base_rdd$y_homicide, base_rdd$mg_preto,
   summary()
 
 
-bandwidths <- c(0.05, 0.10, 0.157, 0.25)
+bandwidths <- c(0.167)
 resultados <- data.frame()
 
 for (bw in bandwidths) {
@@ -457,10 +457,14 @@ resultados |>
   gt() |> 
   tab_header(
     title = md("*Placebo Results (t-1)*"),
-    subtitle = md("Bandwidth value of 15,7% - CCT"))
+    subtitle = md("Bandwidth value of 16,3% - CCT"))
+
+
 
 
 ```
+
+
 ## tx homicido ano
 
 ```{r}
@@ -507,6 +511,7 @@ rdplot(base_rdd$y_homicide, base_rdd$mg_preto, c = 0, nbins = c(100, 100), kerne
 
 # robustez
 
+## sensibilidade
 ```{r, warning=FALSE}
 
 bandwidths <- seq(.05, 1, by = .1)
@@ -530,36 +535,79 @@ for (bw in bandwidths) {
 
 df_sensibilidade_bw |> 
   ggplot(aes(y = p_value, x = bandwidth)) + 
-  geom_line() + 
-  labs(title = "Sensibilidade do P-Valor a Margem",
-       x = "Largura de Banda",
-       y = "P-valor") +
+  geom_line(size = .7) +
+  labs(title = "P-Value Sensitivity to Margin",
+       x = "Bandwidth",
+       caption = "Visualization by Vandrade") +
   scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.05)) + 
   scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.10)) + 
-  theme_minimal()
+  theme_minimal() + 
+  
+  theme(legend.title = element_blank(),
+        legend.text = element_text(size = 12),
+ 
+        
+        plot.background = element_rect(fill = "#F8F3F0", color = NA),
+        panel.background = element_rect(fill = "#F8F3F0", color = NA),
+        
+        plot.caption = element_text(color = "#000000", size = 11, family = "Stilson-Regular", hjust = .95, vjust = .5),
+        text = element_text(color = "#4b4b4b", family = "Franklin-Regular"),
+
+        plot.title = element_markdown(size = 22, family = "Stilson-Regular"),
+        plot.subtitle = element_markdown(size = 15,hjust = 0.01),
+        
+        axis.title.y = element_text(margin = margin(r = 10, unit = "pt"), size = 11), 
+        axis.title.x = element_text(margin = margin(t = 10, unit = "pt"), size = 11),
+      
+        plot.margin = margin(t = 15, r = 12, b = 7, l = 15),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank())
 
 
-
+  scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.10)) + 
+labs(title = "Coefficient Sensitivity to Margin",
+       x = "Largura de Banda",
+       y = "Coeficiente") 
 
 df_sensibilidade_bw |> 
   ggplot(aes(y = beta, x = bandwidth)) + 
-  geom_line() + 
-  labs(title = "Sensibilidade do Coeficiente a Margem",
-       x = "Largura de Banda",
-       y = "Coeficiente") + 
+  geom_line(size = .7) +
+  labs(title = "Coefficient Sensitivity to Margin",
+       y = "Coefficient",
+       x = "Bandwidth",
+       caption = "Visualization by Vandrade") +
   scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.10)) + 
-  theme_minimal()
+  theme_minimal() + 
+  
+  theme(legend.title = element_blank(),
+        legend.text = element_text(size = 12),
+ 
+        
+        plot.background = element_rect(fill = "#F8F3F0", color = NA),
+        panel.background = element_rect(fill = "#F8F3F0", color = NA),
+        
+        plot.caption = element_text(color = "#000000", size = 11, family = "Stilson-Regular", hjust = .95, vjust = .5),
+        text = element_text(color = "#4b4b4b", family = "Franklin-Regular"),
 
+        plot.title = element_markdown(size = 22, family = "Stilson-Regular"),
+        plot.subtitle = element_markdown(size = 15,hjust = 0.01),
+        
+        axis.title.y = element_text(margin = margin(r = 10, unit = "pt"), size = 11), 
+        axis.title.x = element_text(margin = margin(t = 10, unit = "pt"), size = 11),
+      
+        plot.margin = margin(t = 15, r = 12, b = 7, l = 15),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank())
 
 
 ```
 
+## Placebo
 ```{r}
 
-base_placebo <- base_rdd |> 
-  filter(abs(mg_preto) <= 0.155)
 
-rdplot(base_placebo$y_homicide_previous, base_placebo$mg_preto, c = 0, nbins = c(10, 10), kernel = 'triangular', x.lim = c(-0.155,0.155), y.lim = c(20, 70), p = TRUE)
+rdplot(base_rdd$y_homicide_previous, base_rdd$mg_preto, c = 0, nbins = c(50, 50), kernel = 'triangular', x.lim = c(-0.18,0.18), y.lim = c(30, 70))
+
 
 
 rdrobust(base_rdd$y_homicide_previous, base_rdd$mg_preto,
@@ -570,6 +618,16 @@ rdrobust(base_rdd$y_homicide_previous, base_rdd$mg_preto,
          all = TRUE,
          p = TRUE) |> 
   summary()
+
+resultados <- data.frame(
+  Bandwidth = 0.167,
+  Coefficient = 0.96,
+  P_value = 0.896,
+  Obs_Branco = 492,
+  Obs_Preto = 468
+)
+
+resultados |> gt()
 
 ```
 

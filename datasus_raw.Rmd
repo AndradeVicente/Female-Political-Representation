@@ -35,7 +35,6 @@ df_simsus_geral <- df_simsus_raw |>
          ano_nasc = year(dt_nasc),
          cd_muni_ibge = substr(cd_muni_ibge, 1,6),
 
-         
          idade = as.integer(difftime(dt_obito, dt_nasc, units = "days") / 365.25),
          
          idade_15_49 = ifelse(idade >= 15 & idade <= 49, TRUE, FALSE),
@@ -68,7 +67,6 @@ saveRDS(df_simsus_mental, file = "Dados/simsus-mental.rds")
 ```
 
 # Violência Doméstica
-
 
 ```{r}
 df_simsus_geral <- readRDS("Dados/df_simsus_geral.rds")
