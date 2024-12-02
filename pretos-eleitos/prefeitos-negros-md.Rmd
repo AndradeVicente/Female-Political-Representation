@@ -12,27 +12,104 @@ output: html_document
 library(tidyverse)
 library(rdrobust)
 library(readxl)
+library(extrafont)
+library(ggtext)
+library(showtext)
+library(gt)
 ```
+
+# Fontes
+```{r}
+font_add("neue_haas", "../fonts/neue-haas-grotesk/NeueHaasDisplayMediu.ttf")
+font_add("neue_haas_light", "../fonts/neue-haas-grotesk/NeueHaasDisplayLight.ttf")
+font_add("neue_haas_thin", "../fonts/neue-haas-grotesk/NeueHaasDisplayThin.ttf")
+
+font_add("Stilson-Regular", "../fonts/stilson/OTF/Stilson Regular.otf")
+font_add("Stilson-Bold", "../fonts/stilson/OTF/Stilson Bold.otf")
+font_add("Stilson-Italic", "../fonts/stilson/OTF/Stilson Italic.otf")
+font_add("Stilson-BoldItalic", "../fonts/stilson/OTF/Stilson Bold Italic.otf")
+
+font_add("Franklin-Regular", "../fonts/franklin-gothic/News_Gothic/NewsGothicStd.otf")
+font_add("Franklin-Bold", "../fonts/franklin-gothic/News_Gothic/NewsGothicStd-Bold.otf")
+font_add("Franklin-Oblique", "../fonts/franklin-gothic/News_Gothic/NewsGothicStd-Oblique.otf")
+font_add("Franklin-Oblique-Bold", "../fonts/franklin-gothic/News_Gothic/NewsGothicStd-BoldOblique.otf")
+
+showtext_auto()
+```
+
+
+```{r}
+
+anos <- 2012:2022
+taxa_negros <- c(37.0, 36.8, 39.0, 37.9, 40.2, 43.1, 37.6, 29.0, 32.2, 31.0, 29.7)
+taxa_nao_negros <- c(15.9, 15.6, 16.0, 16.2, 16.1, 14.0, 11.3, 11.5, 11.3, 10.8, 10.8)
+
+df <- data.frame(
+  Ano = anos,
+  taxa_negros = taxa_negros,
+  taxa_nao_negros = taxa_nao_negros) |> 
+  pivot_longer(cols = c(taxa_negros, taxa_nao_negros), names_to = "grupo", values_to = "taxa")
+
+df |> 
+  ggplot(aes(x = Ano, y = taxa, color = grupo)) + 
+  geom_line(size = .7) + 
+  theme_minimal() + 
+  scale_color_manual(values = c("#e9d8a6", "#ae2012"),
+                     labels = c("White", "Black ")) +
+  scale_x_continuous(breaks = c(2012, 2014, 2016, 2018, 2020, 2022)) + 
+  ylim(0,50) + 
+  labs(title = "Homicide Rates of Black and Non-Black Individuals in Brazil (2012–2022)",
+       subtitle = "A comparative analysis of homicides per 100k inhabtants",
+       x = NULL,
+       y = "Homicides per 100k inhabitants",
+       fill = NULL,
+       caption = "Data from SIM-SUS | Visualization by Vandrade") +
+  
+  theme(legend.position = "top",
+        
+        legend.title = element_blank(),
+        legend.text = element_text(size = 12),
+ 
+        
+        plot.background = element_rect(fill = "#F8F3F0", color = NA),
+        panel.background = element_rect(fill = "#F8F3F0", color = NA),
+        
+        plot.caption = element_text(color = "#000000", size = 11, family = "Stilson-Regular", hjust = .95, vjust = .5),
+        text = element_text(color = "#4b4b4b", family = "Franklin-Regular"),
+
+        plot.title = element_markdown(size = 22, family = "Stilson-Regular"),
+        plot.subtitle = element_markdown(size = 15,hjust = 0.01),
+        
+        axis.title.y = element_text(margin = margin(r = 10, unit = "pt"), size = 11), 
+        axis.title.x = element_text(margin = margin(t = 10, unit = "pt"), size = 11),
+      
+        plot.margin = margin(t = 15, r = 12, b = 7, l = 15),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank())
+        
+
+```
+Elections between Black and White Candidates (2016)
 
 
 # Dados TSE
 
 ```{r}
 
-candidatos <- readRDS("candidates-att.rds")
+candidatos <- readRDS("../Dados/candidates-att.rds")
 
-prefeitos <- candidatos %>% 
-  filter(ano %in% c(2016, 2020)) %>% 
+prefeitos <- candidatos |> 
+  filter(ano %in% c(2016, 2020)) |> 
   mutate(x_cor_raca = case_when(cor_raca == "PRETA" ~ "preta",
                    cor_raca == "PARDA" ~ "preta",
                    cor_raca == "BRANCA" ~ "branca",
-                   .default = NA)) %>% 
+                   .default = NA))  |>  
   group_by(ano, estado, cd_municipio_tse) |> 
   arrange(desc(total_votos)) |> 
-  slice_head(n = 2) %>%
+  slice_head(n = 2) |> 
   group_by(ano, estado, cd_municipio_tse) |>
   filter(!is.na(x_cor_raca)) |>
-  filter(n_distinct(x_cor_raca) == 2) %>% 
+  filter(n_distinct(x_cor_raca) == 2) |> 
   mutate(preto_eleito = ifelse(x_cor_raca == "preta" & resultado == "Eleito", 1, 0),
          mg_preto = (total_votos[x_cor_raca == 'preta'] - total_votos[x_cor_raca == 'branca'])/sum(total_votos),
          pop_total = pop_mas + pop_fem,
@@ -49,33 +126,83 @@ prefeitos <- candidatos %>%
 ## Histograma
 ```{r}
 
-prefeitos %>% 
+prefeitos |> 
   ggplot(aes(x = mg_preto, fill = factor(preto_eleito))) + 
-  geom_histogram(boundary = 0, binwidth = 0.05, color = 'white') + 
-  geom_vline(xintercept = 0) +
+  geom_histogram(boundary = -0.001, binwidth = 0.05, color = 'white', position = "identity") + 
   scale_fill_manual(values = c("#e9d8a6", "#ae2012"),
-                    labels = c("Branco Eleito", "Preto Eleito")) +
-  labs(title = "Distribuição de Margens de Vitória em Municípios Brasileiros",
-       subtitle = "Eleições entre Pretos e Brancos (2016)",
-       x = "Margem de Vitória de Negros",
+                    labels = c("White Elected", "Black Elected")) +
+  labs(title = "Distribution of Victory Margins in Brazilian Municipalities",
+       subtitle = "Runs between Black and White candidates (2016)",
+       x = "Margin of Victory of Black Mayor",
        y = NULL,
-       fill = NULL) + 
+       fill = NULL,
+       caption = "Data from TSE | Visualization by Vandrade") + 
+  
   theme_minimal() + 
+  
   theme(legend.position = "top",
-        plot.caption = element_text(color = "#3494ba", size = 11),
-        plot.title = element_text(size = 14),
-        plot.subtitle = element_text(size = 11, color = 'black'),
+        plot.caption = element_text(color = "#000000", size = 12, family = "Stilson-Regular", hjust = .95),
+        
+        plot.background = element_rect(fill = "#F8F3F0", color = NA),
+        panel.background = element_rect(fill = "#F8F3F0", color = NA),
+
+        
+        text = element_text(color = "#4b4b4b", family = "Franklin-Regular"),
+
+        
+        plot.title = element_markdown(size = 22, family = "Stilson-Regular"),
+        plot.subtitle = element_markdown(size = 15,hjust = 0.01),
+        
         axis.title.y = element_text(margin = margin(r = 10, unit = "pt"), size = 11), 
-        axis.title.x = element_text(margin = margin(t = 10, unit = "pt"), size = 11)) +
+        axis.title.x = element_text(margin = margin(t = 10, unit = "pt"), size = 11),
+        plot.margin = margin(t = 15, r = 15, b = 10, l = 15),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank()) +
+  
   scale_x_continuous(labels = scales::percent)
+
 ```
 
 
 # DATASUS
 
+## old
 ```{r}
 
-df_homicides <- readRDS("simsus-homicidio.rds") 
+df_homicides_old <- readRDS("../Dados/datasus_completo.rds") |> 
+  mutate(dt_obito = as.numeric(str_sub(data, -4)),
+         dt_nascimento = as.numeric(str_sub(nascimento, -4)),
+         idade = dt_obito - dt_nascimento,
+         
+         idade_15_49 = ifelse(idade >= 15 & idade <= 49, TRUE, FALSE),
+         idade_15_29 = ifelse(idade >= 15 & idade <= 29, TRUE, FALSE),
+         
+         preto_morto = ifelse(raca == 3, TRUE, FALSE),
+         
+         mandato = case_when(ano_obito %% 4 == 0 ~ ano_obito - 4,
+                             ano_obito %% 4 == 1 ~ ano_obito - 1,
+                             ano_obito %% 4 == 2 ~ ano_obito - 2,
+                             ano_obito %% 4 == 3 ~ ano_obito - 3)) |> 
+  select(cd_muni_ibge = municipio, everything(), -data, -nascimento) 
+  
+
+simsus_homicidio_old <- df_homicides_old |> 
+  filter(idade_15_29 == TRUE) |> 
+  group_by(mandato, municipio) |> 
+  summarise(y_homicide = n()) |> 
+  ungroup() |> 
+  arrange(municipio, mandato) |> 
+  group_by(municipio) |> 
+  mutate(y_homicide_previous = lag(y_homicide),
+         y_homicide_previous = replace_na(y_homicide_previous, 0),
+         municipio = as.character(municipio))
+
+```
+
+## adriano
+```{r}
+
+df_homicides <- readRDS("../Dados/simsus-homicidio.rds") 
 
 simsus_homicidio <- df_homicides |> 
   filter(mandato >= 2004,
@@ -88,15 +215,14 @@ simsus_homicidio <- df_homicides |>
   mutate(y_homicide_previous = lag(y_homicide))
   
 
-
-
 ```
+
 
 # Controles
 
 ```{r}
 
-df_pop_preta <- read_xlsx("Dados/pop.xlsx")
+df_pop_preta <- read_xlsx("../Dados/pop.xlsx")
 
 df_demo_c <- df_pop_preta |> 
   select(cd_muni_ibge = Cód.,
@@ -108,7 +234,13 @@ df_demo_c <- df_pop_preta |>
          prop_preta = pop_preta/Total,
          cd_muni_ibge = as.numeric(cd_muni_ibge)) |> 
   select(cd_muni_ibge, pib_pc, prop_preta)
-  
+
+df_prop_jovens <- read_xlsx("../Dados/ibge-pop-faixa-etaria.xlsx") |> 
+  mutate(cd_muni_6 = substr(Município,1,6),
+         prop_pop_15_29 = (`De 15 a 19 anos` + `De 20 a 24 anos` + `De 25 a 29 anos`)/Total) |> 
+  select(cd_muni_6, prop_pop_15_29)
+
+
 
 ```
 
@@ -118,8 +250,9 @@ df_demo_c <- df_pop_preta |>
 
 base_rdd <- prefeitos |> 
   left_join(simsus_homicidio, by = c('ano' = 'mandato', 'codigo_ibge_sus' = 'cd_muni_ibge')) |>
-  left_join(df_demo_c, by = c('codigo_ibge'='cd_muni_ibge')) |> 
-  filter(ano %in% c(2016, 2020)) |> 
+  left_join(df_demo_c, by = c('codigo_ibge'='cd_muni_ibge')) |>
+  left_join(df_prop_jovens, by = c('codigo_ibge_sus'='cd_muni_6')) |>
+  filter(ano %in% c(2016)) |> 
   mutate(codigo_ibge = as.factor(codigo_ibge),
          across(starts_with('y_'), ~ (./pop_total)*100000),
          across(starts_with('y_'), ~ replace_na(., 0)),
@@ -132,13 +265,17 @@ base_rdd <- prefeitos |>
          genero = as.factor(genero)) |> 
   filter(codigo_ibge != 1504752)
 
+
 ```
+
+
 
 # Descritiva
 
 
 ```{r}
 # dados numericos
+
 base_rdd |> 
   group_by(preto_eleito) |> 
   summarize(
@@ -149,17 +286,43 @@ base_rdd |>
     pib = mean(pib_pc),
     pib_sd = sd(pib_pc),
     prop_preta = mean(prop_preta),
-    prop_preta_sd = sd(prop_preta))
+    prop_preta_sd = sd(prop_preta),
+    prop_pop_15_29 = mean(prop_pop_15_29),
+    prop_pop_15_29_sd = sd(prop_pop_15_29))
+
+t.test(base_rdd$prop_pop_15_29[base_rdd$preto_eleito == 0], base_rdd$prop_pop_15_29[base_rdd$preto_eleito == 1])
+
+
 
 ```
-
 
 ```{r}
 
 base_rdd |> 
   ggplot(aes(x = pib_pc, fill = preto_eleito)) + 
   geom_density(alpha = .75) + 
-  xlim(0,100000)
+  xlim(0,100000) + 
+  scale_fill_manual(values = c("#e9d8a6", "#ae2012"),
+                    labels = c("Branco Eleito", "Negro Eleito")) + 
+  labs(title = "Distribuição do PIB Per Capita de Municípios Por Cor/Raça",
+       subtitle = "Eleições entre Pretos e Brancos (2016)",
+       x = "Margem de Vitória de Negros",
+       y = NULL,
+       fill = NULL,
+       caption = "Dados do TSE e IBGE | Visualização por Vandrade") + 
+  theme_minimal() + 
+  theme(
+    legend.position = "top",
+    
+    text = element_text(color = "#4b4b4b", family = "Franklin-Regular"),
+
+    plot.caption = element_text(color = "#000000", size = 11, family = "Stilson-Regular", hjust = .95),
+    plot.title = element_markdown(size = 22, family = "Stilson-Regular"),
+    plot.subtitle = element_markdown(size = 15,hjust = 0.01),
+        
+    axis.title.y = element_text(margin = margin(r = 10, unit = "pt"), size = 11), 
+    axis.title.x = element_text(margin = margin(t = 10, unit = "pt"), size = 11),
+    plot.margin = margin(t = 15, r = 0, b = 10, l = 15))
 
 
 ```
@@ -204,15 +367,55 @@ base_rdd |>
 
 
 # RDD 
-## tx homicido mandato
+## tx homicido mandato 
+
+### plot
 
 ```{r}
 
-controls <- model.matrix(~ idade + partido + pop_total + educacao_agr + pib_pc + prop_preta + genero, data = base_rdd)
+graf <- rdplot(base_rdd$y_homicide, base_rdd$mg_preto, c = 0, nbins = c(50, 50), kernel = 'triangular', x.lim = c(-0.18,0.18), y.lim = c(30,70))
 
 
-rdplot(base_rdd$y_homicide, base_rdd$mg_preto, c = 0, nbins = c(100, 100), kernel = 'triangular', x.lim = c(-0.165,0.165), y.lim = c(20,75), p = TRUE)
+graf_gg <- graf$rdplot
 
+graf_gg + 
+  labs(title = "Regression Discontinuity Plot",
+       subtitle = "Comparing Races Between Black and White Candidates in the 2016 Elections",
+       x = "Margin of Victory of Black Mayor",
+       y = "Homicides per 100k Inhabitants During Term",
+       fill = NULL,
+       caption = "Data from TSE & SimSus & IBGE") + 
+
+  theme_minimal() + 
+  
+  theme(legend.position = "top",
+        plot.caption = element_text(color = "#000000", size = 12, family = "Stilson-Regular", hjust = .95),
+        
+        plot.background = element_rect(fill = "#F8F3F0", color = NA),
+        panel.background = element_rect(fill = "#F8F3F0", color = NA),
+
+        
+        text = element_text(color = "#4b4b4b", family = "Franklin-Regular"),
+
+        
+        plot.title = element_markdown(size = 22, family = "Stilson-Regular"),
+        plot.subtitle = element_markdown(size = 15,hjust = 0.01),
+        
+        axis.title.y = element_text(margin = margin(r = 10, unit = "pt"), size = 11), 
+        axis.title.x = element_text(margin = margin(t = 10, unit = "pt"), size = 11),
+        plot.margin = margin(t = 15, r = 15, b = 10, l = 15),
+        panel.grid.minor = element_blank()) +
+  
+  scale_x_continuous(labels = scales::percent, breaks = c(-.15, -.1, -.05, 0, .05, .1,.15)) 
+  
+  
+
+```
+### regressao
+
+```{r}
+
+controls <- model.matrix(~ idade + partido + pop_total + educacao_agr + pib_pc + prop_preta + genero + prop_pop_15_29, data = base_rdd)
 
 rdrobust(base_rdd$y_homicide, base_rdd$mg_preto,
          c = 0,
@@ -223,10 +426,38 @@ rdrobust(base_rdd$y_homicide, base_rdd$mg_preto,
   summary()
 
 
-base_cct <- base_rdd |>
-  filter(abs(mg_preto) <= 0.155)
+bandwidths <- c(0.05, 0.10, 0.157, 0.25)
+resultados <- data.frame()
 
-rdplot(base_cct$y_homicide, base_cct$mg_preto, c = 0, nbins = c(10, 10), kernel = 'triangular', x.lim = c(-0.155,0.155), y.lim = c(20,75), p = TRUE)
+for (bw in bandwidths) {
+  # Rodar o modelo com o bandwidth atual
+  rdrobust_result <- rdrobust(
+    y = base_rdd$y_homicide_previous, 
+    x = base_rdd$mg_preto,
+    c = 0,
+    kernel = 'triangular',
+    cluster = base_rdd$codigo_ibge,
+    covs = controls,
+    h = bw, # Define o bandwidth manualmente
+    all = TRUE)
+
+   resultados <- rbind(resultados, data.frame(
+    Bandwidth = bw,
+    Coefficient = rdrobust_result$coef[3],
+    P_value = rdrobust_result$pv[3],
+    Obs_White = rdrobust_result$N_h[1],
+    Obs_Black = rdrobust_result$N_h[2]
+  ))}  
+
+resultados |> 
+  mutate(
+    Coefficient = round(Coefficient, 2),
+    P_value = round(P_value, 2)
+  ) |> 
+  gt() |> 
+  tab_header(
+    title = md("*Placebo Results (t-1)*"),
+    subtitle = md("Bandwidth value of 15,7% - CCT"))
 
 
 ```
@@ -237,7 +468,7 @@ rdplot(base_cct$y_homicide, base_cct$mg_preto, c = 0, nbins = c(10, 10), kernel 
 controls <- model.matrix(~ idade + partido + pop_total + educacao_agr + pib_pc + prop_preta + genero, data = base_rdd)
 
 
-rdplot(base_rdd$y_homicide_year, base_rdd$mg_preto, c = 0, nbins = c(100, 100), kernel = 'triangular', y.lim = c(5,20), p = TRUE, x.lim = c(-.164,.164))
+rdplot(base_rdd$y_homicide_year, base_rdd$mg_preto, c = 0, nbins = c(100, 100), kernel = 'triangular', y.lim = c(5,20), x.lim = c(-.18,.18))
 
 
 rdrobust(base_rdd$y_homicide_year, base_rdd$mg_preto,
@@ -283,7 +514,7 @@ bandwidths <- seq(.05, 1, by = .1)
 df_sensibilidade_bw <- data.frame(bandwidth = numeric(), p_value = numeric(), beta = numeric())
 
 for (bw in bandwidths) {
-  rd_robust_result <- rdrobust(base_rdd$y_homicide_year, base_rdd$mg_preto,
+  rd_robust_result <- rdrobust(base_rdd$y_homicide, base_rdd$mg_preto,
                                h = bw,
                                c = 0,
                                kernel = 'triangular',
@@ -302,23 +533,33 @@ df_sensibilidade_bw |>
   geom_line() + 
   labs(title = "Sensibilidade do P-Valor a Margem",
        x = "Largura de Banda",
-       y = "P-valor") + 
-  ylim(0,1)
+       y = "P-valor") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.05)) + 
+  scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.10)) + 
+  theme_minimal()
+
+
+
 
 df_sensibilidade_bw |> 
   ggplot(aes(y = beta, x = bandwidth)) + 
   geom_line() + 
   labs(title = "Sensibilidade do Coeficiente a Margem",
        x = "Largura de Banda",
-       y = "beta") 
+       y = "Coeficiente") + 
+  scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.10)) + 
+  theme_minimal()
+
 
 
 ```
 
 ```{r}
 
+base_placebo <- base_rdd |> 
+  filter(abs(mg_preto) <= 0.155)
 
-rdplot(base_rdd$y_homicide_previous, base_rdd$mg_preto, c = 0, nbins = c(100, 100), kernel = 'triangular', x.lim = c(-0.169,0.169), y.lim = c(50,125), p = TRUE)
+rdplot(base_placebo$y_homicide_previous, base_placebo$mg_preto, c = 0, nbins = c(10, 10), kernel = 'triangular', x.lim = c(-0.155,0.155), y.lim = c(20, 70), p = TRUE)
 
 
 rdrobust(base_rdd$y_homicide_previous, base_rdd$mg_preto,

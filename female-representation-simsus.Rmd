@@ -20,6 +20,18 @@ library(gt)
 
 ```{r}
 
+prefeitos <- candidatos |> 
+  group_by(ano, estado, cd_municipio_tse) |> 
+  arrange(desc(total_votos)) |> 
+  slice_head(n = 2) |> 
+  filter(any(is.na(genero)))
+  
+
+```
+
+
+```{r}
+
 candidatos <- readRDS("Dados/candidates.rds")
 
 prefeitos <- candidatos |> 
@@ -29,17 +41,46 @@ prefeitos <- candidatos |>
   filter(!is.na(genero)) |> 
   group_by(ano, estado, cd_municipio_tse) |> 
   filter(n_distinct(genero) == 2) |> 
-  mutate(mg_fem = (total_votos[genero == 'FEMININO'] - total_votos[genero == 'MASCULINO'])/total_votos,
+  mutate(mg_fem = (total_votos[genero == 'FEMININO'] - total_votos[genero == 'MASCULINO'])/sum(total_votos),
+         eleita = ifelse(mg_fem > 0, TRUE, FALSE),
          pop_total = pop_mas + pop_fem,
          educacao_agr = case_when(educacao %in% c('1º GRAU COMPLETO', '1º GRAU INCOMPLETO', 'ENSINO FUNDAMENTAL COMPLETO', 'ENSINO FUNDAMENTAL INCOMPLETO', 'FUNDAMENTAL COMPLETO', 'FUNDAMENTAL INCOMPLETO', 'ANALFABETO', 'LÊ E ESCREVE') ~ 'fundamental',
            educacao %in% c('2º GRAU COMPLETO', '2º GRAU INCOMPLETO', 'ENSINO MÉDIO COMPLETO', 'ENSINO MÉDIO INCOMPLETO', 'MÉDIO COMPLETO', 'MÉDIO INCOMPLETO') ~ 'medio',
            educacao %in% c('SUPERIOR COMPLETO', 'SUPERIOR INCOMPLETO') ~ 'superior',
-           TRUE ~ NA_character_)) |>
-  filter(resultado == 'Eleito', pop_votante <= 200000)
+           TRUE ~ NA_character_),
+         codigo_ibge_sus = as.factor(codigo_ibge_sus)) |>
+  filter(resultado == 'Eleito', pop_votante <= 200000) |> 
+  ungroup()
 
 
 
 ```
+
+```{r}
+
+prefeitos %>% 
+  ggplot(aes(x = mg_fem, fill = factor(eleita))) + 
+  geom_histogram(boundary = 0, binwidth = 0.05, color = 'white') + 
+  geom_vline(xintercept = 0) +
+  scale_fill_manual(values = c("#e9d8a6", "#ae2012"),
+                    labels = c("Homem Eleito", "Mulher Eleita")) +
+  labs(title = "Distribuição de Margens de Vitória em Municípios Brasileiros",
+       subtitle = "",
+       x = "Margem de Vitória de Mulheres",
+       y = NULL,
+       fill = NULL) + 
+  theme_minimal() + 
+  theme(legend.position = "top",
+        plot.caption = element_text(color = "#3494ba", size = 11),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 11, color = 'black'),
+        axis.title.y = element_text(margin = margin(r = 10, unit = "pt"), size = 11), 
+        axis.title.x = element_text(margin = margin(t = 10, unit = "pt"), size = 11)) +
+  scale_x_continuous(labels = scales::percent)
+
+```
+
+
 
 # Base DataSUS - SIM 
 
@@ -71,7 +112,6 @@ df_prefeitos_simsus <- prefeitos |>
   mutate(codigo_ibge = as.factor(codigo_ibge),
          across(starts_with('y_'), ~ (./pop_total)*100000),
          across(starts_with('y_'), ~ replace_na(., 0)),
-         eleita = ifelse(genero == 'FEMININO', 1, 0),
          ano = as.factor(ano),
          educacao_agr = as.factor(educacao_agr),
          partido = as.factor(partido)) 
@@ -153,9 +193,10 @@ simsus_mas <- simsus |>
 ```
 
 
+
 ## Homicidios
 
-### Female - 15/45
+### Female - 15/49
 ```{r}
 
 df_homicides <- readRDS("Dados/simsus-homicidio.rds") 
@@ -163,17 +204,18 @@ df_homicides <- readRDS("Dados/simsus-homicidio.rds")
 simsus_homicidio_fem <- df_homicides |> 
   filter(idade_15_49 == TRUE, 
          sexo == 2) |> # 1- Masculino // 2 - Feminino
-  mutate(cd_muni_ibge = as.numeric(cd_muni_ibge)) |> 
-  group_by(mandato, cd_muni_ibge) |> 
-  summarise(y_homicide = sum(y_homicide),
-            y_domestic_homicide = sum(y_domestic_homicide))
+  group_by(cd_muni_ibge, mandato) |> 
+  summarise(y_homicide = sum(y_homicide == TRUE),
+            y_domestic_homicide = sum(y_domestic_homicide == TRUE)) |> 
+  ungroup() |> 
+  mutate(cd_muni_ibge = as.factor(cd_muni_ibge))
 
 ```
-
+## join
 ```{r}
 
 df_homicidio_fem <- prefeitos |> 
-  left_join(simsus_homicidio_fem, by = c('ano' = 'mandato', 'codigo_ibge' = 'cd_muni_ibge')) |> 
+  left_join(simsus_homicidio_fem, by = c('ano' = 'mandato', 'codigo_ibge_sus' = 'cd_muni_ibge')) |>
   filter(ano >= 2004 & ano <= 2012) |> 
   mutate(codigo_ibge = as.factor(codigo_ibge),
          across(starts_with('y_'), ~ (./pop_total)*100000),
@@ -188,13 +230,12 @@ df_homicidio_fem <- prefeitos |>
 
 
 ```{r}
-rdplot(df_homicidio_fem$y_homicide, df_homicidio_fem$mg_fem,
+rdplot(y = df_homicidio_fem$y_homicide, x = df_homicidio_fem$mg_fem,
        c = 0,
-       nbins = c(100, 100),
+       nbins = c(50, 50),
        kernel = 'triangular',
-       h= 0.212,
-       x.lim = c(-.15,.15),
-       y.lim = c(0,5)) 
+       x.lim = c(-.20,.20))
+
 ```
 
 ```{r}

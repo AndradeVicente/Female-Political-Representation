@@ -50,7 +50,6 @@ df_simsus_geral <- df_simsus_raw |>
 
 
 
-
 saveRDS(df_simsus_geral, file = "Dados/df_simsus_geral.rds")
 
 ```
@@ -82,5 +81,11 @@ saveRDS(df_homicides, file = "Dados/simsus-homicidio.rds")
 
 ```
 
+```{r}
+
+df_homicides |> filter(y_domestic_homicide == TRUE) 
+
+
+```
 
 
